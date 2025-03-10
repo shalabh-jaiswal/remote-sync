@@ -1,0 +1,2 @@
+# remote-sync
+A resource-efficient, and robust solution for synchronizing files from local Windows, Linux or MacOS machine to S3, leveraging the strengths of the AWS S3 Sync, AWS CLI and Watchdog. It's also designed for ease of use and configuration. 

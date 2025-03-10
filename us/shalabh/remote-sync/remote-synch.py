@@ -6,7 +6,6 @@ import subprocess  # For using aws s3 sync command
 import threading
 import time
 
-import boto3
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -18,8 +17,6 @@ def load_config():
     """
     config.ini format:
     [AWS]
-    aws_access_key_id = YOUR_AWS_ACCESS_KEY
-    aws_secret_access_key = YOUR_AWS_SECRET_KEY
     region_name = YOUR_REGION
     s3_bucket = your-s3-bucket-name
     s3_prefix = your/s3/prefix/
@@ -37,14 +34,12 @@ def load_config():
 
 config = load_config()
 
-AWS_ACCESS_KEY_ID = config['AWS']['aws_access_key_id']
-AWS_SECRET_ACCESS_KEY = config['AWS']['aws_secret_access_key']
 AWS_REGION = config['AWS']['region_name']
 S3_BUCKET = config['AWS']['s3_bucket']
 S3_PREFIX = config['AWS'].get('s3_prefix', '')  # Default to no prefix if not specified
 WATCH_FOLDERS = [folder.strip() for folder in config['Local']['watch_folders'].split(',')]
 SYNC_INTERVAL = int(config['Local']['sync_interval'])
-PERIODIC_SYNC_INTERVAL = int(config['Local']['periodic_sync_interval']) # seconds
+PERIODIC_SYNC_INTERVAL = int(config['Local']['periodic_sync_interval'])  # seconds
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO,
@@ -83,6 +78,7 @@ def aws_s3_sync(local_folder):
     """
     last_folder_name = os.path.basename(local_folder)
     s3_uri = f"s3://{S3_BUCKET}/{S3_PREFIX}{last_folder_name}"
+
     command = [
         "aws", "s3", "sync",
         local_folder,
@@ -90,20 +86,22 @@ def aws_s3_sync(local_folder):
         # "--delete",   Remove files in S3 that don't exist locally
         "--exclude", "*.tmp",  # Exclude common temporary files.
         "--exclude", "*.DS_Store",  # ignore mac os files
-        "--exclude", "*.swp", # ignore linux swp files
+        "--exclude", "*.swp",  # ignore linux swp files
         "--no-progress",
-        # "--aws-access-key-id", AWS_ACCESS_KEY_ID,
-        # "--aws-secret-access-key", AWS_SECRET_ACCESS_KEY,
-        "--region", AWS_REGION
+        "--region", AWS_REGION,
+        "--profile", "remote-sync-user"
     ]
 
     try:
         logging.info(f"Syncing: {local_folder} to {s3_uri}")
+
         result = subprocess.run(command, capture_output=True, text=True,
                                 check=True)  # check = True to raise exception for non 0 exit codes
+
         logging.info(f"Sync output:\n{result.stdout}")  # log sync output
         if result.stderr:
             logging.warning(f"Sync warnings/errors:\n{result.stderr}")
+
     except subprocess.CalledProcessError as e:
         logging.error(f"Error during sync: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
     except FileNotFoundError:
@@ -124,6 +122,7 @@ def sync_worker(sync_queue):
             # Block until an item is available, or timeout.
             _ = sync_queue.get(timeout=SYNC_INTERVAL)
             current_time = time.time()
+
             # Throttle the sync operations.
             if current_time - last_sync_time >= SYNC_INTERVAL:
                 for folder in WATCH_FOLDERS:
@@ -143,8 +142,9 @@ def sync_worker(sync_queue):
                     logging.info('Initial Sync...')
                     aws_s3_sync(folder)
                 last_sync_time = current_time
-                last_periodic_sync_time = current_time # init periodic timer too
+                last_periodic_sync_time = current_time  # init periodic timer too
                 initial_sync_done = True
+
             elif current_time - last_periodic_sync_time >= PERIODIC_SYNC_INTERVAL:
                 # Perform periodic sync, independent of event-driven syncs
                 for folder in WATCH_FOLDERS:
